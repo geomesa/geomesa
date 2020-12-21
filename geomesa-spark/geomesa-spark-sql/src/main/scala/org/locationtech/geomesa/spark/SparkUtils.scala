@@ -96,11 +96,11 @@ object SparkUtils extends LazyLogging {
         case DataTypes.FloatType               => classOf[java.lang.Float]
         case DataTypes.DoubleType              => classOf[java.lang.Double]
         case DataTypes.BooleanType             => classOf[java.lang.Boolean]
-        case JTSTypes.PointTypeInstance        => classOf[org.locationtech.jts.geom.Point]
-        case JTSTypes.LineStringTypeInstance   => classOf[org.locationtech.jts.geom.LineString]
-        case JTSTypes.PolygonTypeInstance      => classOf[org.locationtech.jts.geom.Polygon]
+        case JTSTypes.PointUDT        => classOf[org.locationtech.jts.geom.Point]
+        case JTSTypes.LineStringUDT   => classOf[org.locationtech.jts.geom.LineString]
+        case JTSTypes.PolygonUDT      => classOf[org.locationtech.jts.geom.Polygon]
         case JTSTypes.MultipolygonTypeInstance => classOf[org.locationtech.jts.geom.MultiPolygon]
-        case JTSTypes.GeometryTypeInstance     => classOf[org.locationtech.jts.geom.Geometry]
+        case JTSTypes.GeometryUDT     => classOf[org.locationtech.jts.geom.Geometry]
       }
       builder.add(field.name, binding)
     }
@@ -109,8 +109,9 @@ object SparkUtils extends LazyLogging {
   }
 
   def createStructType(sft: SimpleFeatureType): StructType = {
-    val fields = sft.getAttributeDescriptors.asScala.flatMap(createStructField).toList
-    StructType(StructField("__fid__", DataTypes.StringType, nullable = false) :: fields)
+    val fields = sft.getAttributeDescriptors.asScala.flatMap(createStructField)
+    fields.append(StructField("__fid__", DataTypes.StringType, nullable = false))
+    StructType(fields.toList)
   }
 
   private def createStructField(ad: AttributeDescriptor): Option[StructField] = {
@@ -129,14 +130,14 @@ object SparkUtils extends LazyLogging {
       case ObjectType.MAP      => null // not supported
       case ObjectType.GEOMETRY =>
         bindings.last match {
-          case ObjectType.POINT               => JTSTypes.PointTypeInstance
-          case ObjectType.LINESTRING          => JTSTypes.LineStringTypeInstance
-          case ObjectType.POLYGON             => JTSTypes.PolygonTypeInstance
-          case ObjectType.MULTIPOINT          => JTSTypes.MultiPointTypeInstance
-          case ObjectType.MULTILINESTRING     => JTSTypes.MultiLineStringTypeInstance
+          case ObjectType.POINT               => JTSTypes.PointUDT
+          case ObjectType.LINESTRING          => JTSTypes.LineStringUDT
+          case ObjectType.POLYGON             => JTSTypes.PolygonUDT
+          case ObjectType.MULTIPOINT          => JTSTypes.MultiPointUDT
+          case ObjectType.MULTILINESTRING     => JTSTypes.MultiLineStringUDT
           case ObjectType.MULTIPOLYGON        => JTSTypes.MultipolygonTypeInstance
-          case ObjectType.GEOMETRY_COLLECTION => JTSTypes.GeometryTypeInstance
-          case _                              => JTSTypes.GeometryTypeInstance
+          case ObjectType.GEOMETRY_COLLECTION => JTSTypes.GeometryUDT
+          case _                              => JTSTypes.GeometryUDT
         }
 
       case _ => logger.warn(s"Unexpected bindings for descriptor $ad: ${bindings.mkString(", ")}"); null

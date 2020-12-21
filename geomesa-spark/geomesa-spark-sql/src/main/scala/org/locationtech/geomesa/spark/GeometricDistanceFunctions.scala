@@ -8,46 +8,48 @@
 
 package org.locationtech.geomesa.spark
 
-import org.locationtech.jts.geom.{Coordinate, Geometry, LineString}
 import org.apache.spark.sql.SQLContext
 import org.geotools.geometry.jts.GeometryCoordinateSequenceTransformer
-import org.geotools.referencing.{CRS, GeodeticCalculator}
 import org.geotools.referencing.crs.DefaultGeographicCRS
-import org.locationtech.geomesa.spark.jts.util.SQLFunctionHelper.nullableUDF
+import org.geotools.referencing.{CRS, GeodeticCalculator}
+import org.locationtech.geomesa.spark.jts.udf.NullableUDF._
+import org.locationtech.geomesa.spark.jts.udf.UDFFactory
+import org.locationtech.geomesa.spark.jts.udf.UDFFactory.Registerable
+import org.locationtech.jts.geom.{Coordinate, Geometry, LineString}
 
-object GeometricDistanceFunctions {
-  import java.{lang => jl}
+object GeometricDistanceFunctions extends UDFFactory {
 
-  val ST_DistanceSpheroid: (Geometry, Geometry) => jl.Double =
-    nullableUDF((s, e) => fastDistance(s.getCoordinate, e.getCoordinate))
+  class ST_DistanceSpheroid extends NullableUDF2[Geometry, Geometry, java.lang.Double]((s, e) =>
+    fastDistance(s.getCoordinate, e.getCoordinate))
 
   // Assumes input is two points, for use with collect_list and window functions
-  val ST_AggregateDistanceSpheroid: Seq[Geometry] => jl.Double = a => ST_DistanceSpheroid(a(0), a(1))
+  class ST_AggregateDistanceSpheroid extends NullableUDF1[Seq[Geometry], java.lang.Double](a =>
+    fastDistance(a.head.getCoordinate, a(1).getCoordinate)
+  )
 
-  val ST_LengthSpheroid: LineString => jl.Double =
-    nullableUDF(line => line.getCoordinates.sliding(2).map { case Array(l, r) => fastDistance(l, r) }.sum)
+  class ST_LengthSpheroid extends NullableUDF1[LineString, java.lang.Double](line =>
+    line.getCoordinates.sliding(2).map { case Array(l, r) => fastDistance(l, r) }.sum
+  )
 
-  val ST_Transform: (Geometry, String, String) => Geometry = nullableUDF { (geometry, fromCRSCode, toCRSCode) =>
+  class ST_Transform extends NullableUDF3[Geometry, String, String, Geometry]((geometry, fromCRSCode, toCRSCode) => {
     val transformer = new GeometryCoordinateSequenceTransformer
     val fromCode = CRS.decode(fromCRSCode, true)
     val toCode = CRS.decode(toCRSCode, true)
     transformer.setMathTransform(CRS.findMathTransform(fromCode, toCode, true))
     transformer.transform(geometry)
-  }
+  })
 
-  val distanceNames = Map(
-    ST_DistanceSpheroid -> "st_distanceSpheroid",
-    ST_AggregateDistanceSpheroid -> "st_aggregateDistanceSpheroid",
-    ST_LengthSpheroid -> "st_lengthSpheroid",
-    ST_Transform -> "st_transform"
-  )
+  val ST_DistanceSpheroid = new ST_DistanceSpheroid()
 
+  // Assumes input is two points, for use with collect_list and window functions
+  val ST_AggregateDistanceSpheroid = new ST_AggregateDistanceSpheroid()
+
+  val ST_LengthSpheroid = new ST_LengthSpheroid()
+
+  val ST_Transform = new ST_Transform()
 
   def registerFunctions(sqlContext: SQLContext): Unit = {
-    sqlContext.udf.register(distanceNames (ST_DistanceSpheroid), ST_DistanceSpheroid)
-    sqlContext.udf.register(distanceNames (ST_AggregateDistanceSpheroid), ST_AggregateDistanceSpheroid)
-    sqlContext.udf.register(distanceNames (ST_LengthSpheroid), ST_LengthSpheroid)
-    sqlContext.udf.register(distanceNames (ST_Transform), ST_Transform)
+
   }
 
   @transient private val geoCalcs = new ThreadLocal[GeodeticCalculator] {
@@ -61,5 +63,11 @@ object GeometricDistanceFunctions {
     calc.getOrthodromicDistance
   }
 
-
+  override def udfs: Seq[Registerable] =
+    Seq(
+      ST_DistanceSpheroid,
+      ST_AggregateDistanceSpheroid,
+      ST_LengthSpheroid,
+      ST_Transform
+    )
 }

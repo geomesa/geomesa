@@ -11,9 +11,11 @@ package org.locationtech.geomesa.parquet
 import org.apache.parquet.filter2.predicate.Operators._
 import org.apache.parquet.filter2.predicate.{FilterApi, FilterPredicate}
 import org.apache.parquet.io.api.Binary
+import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
 import org.locationtech.geomesa.filter.FilterHelper
 import org.locationtech.geomesa.filter.visitor.FilterExtractingVisitor
 import org.locationtech.geomesa.index.strategies.SpatialFilterStrategy
+import org.locationtech.geomesa.parquet.io.SimpleFeatureParquetSchema
 import org.locationtech.geomesa.utils.geotools.{GeometryUtils, ObjectType}
 import org.locationtech.geomesa.utils.text.StringSerialization
 import org.opengis.feature.simple.SimpleFeatureType
@@ -40,7 +42,8 @@ object FilterConverter {
     }
 
     val bindings = ObjectType.selectType(sft.getDescriptor(name))
-    val col = StringSerialization.alphaNumericSafeString(name)
+    val encoded = Option(sft.getUserData.get(SimpleFeatureParquetSchema.EncodeFieldNames)).forall(_.toString.toBoolean)
+    val col = if (encoded) { StringSerialization.alphaNumericSafeString(name) } else { name }
 
     val (predicate, remaining): (Option[FilterPredicate], Option[Filter]) = bindings.head match {
       // note: non-points use repeated values, which aren't supported in parquet predicates
@@ -88,6 +91,12 @@ object FilterConverter {
       name: String,
       filter: Filter,
       col: LongColumn): (Option[FilterPredicate], Option[Filter]) = {
+    if (sft.getUserData.get(SimpleFeatureParquetSchema.DateEncoding) == PrimitiveTypeName.INT96.name) {
+      // From: https://github.com/apache/spark/blob/v3.0.0/sql/core/src/test/scala/org/apache/spark/sql/execution/datasources/parquet/ParquetFilterSuite.scala#L629
+      // "spark.sql.parquet.outputTimestampType = INT96 doesn't support pushdown"
+      return (None, Some(filter))
+    }
+
     val (temporal, nonTemporal) = FilterExtractingVisitor(filter, name, sft)
     val predicate = temporal.map(FilterHelper.extractIntervals(_, name)).flatMap { extracted =>
       Some(extracted).filter(e => e.nonEmpty && !e.disjoint && e.forall(_.isBounded)).map { e =>

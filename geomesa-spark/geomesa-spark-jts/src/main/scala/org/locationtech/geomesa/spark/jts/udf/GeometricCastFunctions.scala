@@ -10,32 +10,31 @@ package org.locationtech.geomesa.spark.jts.udf
 
 import java.nio.charset.StandardCharsets
 
-import org.locationtech.jts.geom._
 import org.apache.spark.sql.SQLContext
-import org.locationtech.geomesa.spark.jts.util.SQLFunctionHelper._
+import org.locationtech.geomesa.spark.jts.udf.NullableUDF._
+import org.locationtech.geomesa.spark.jts.udf.UDFFactory.Registerable
+import org.locationtech.jts.geom._
 
-object GeometricCastFunctions {
-  val ST_CastToPoint:      Geometry => Point       = g => g.asInstanceOf[Point]
-  val ST_CastToPolygon:    Geometry => Polygon     = g => g.asInstanceOf[Polygon]
-  val ST_CastToLineString: Geometry => LineString  = g => g.asInstanceOf[LineString]
-  val ST_CastToGeometry:   Geometry => Geometry    = g => g
-  val ST_ByteArray: (String) => Array[Byte] =
-    nullableUDF((string) => string.getBytes(StandardCharsets.UTF_8))
+object GeometricCastFunctions extends UDFFactory {
 
-  private[geomesa] val castingNames = Map(
-    ST_CastToPoint -> "st_castToPoint",
-    ST_CastToPolygon -> "st_castToPolygon",
-    ST_CastToLineString -> "st_castToLineString",
-    ST_CastToGeometry -> "st_castToGeometry",
-    ST_ByteArray -> "st_byteArray"
-  )
+  class ST_CastToPoint extends NullableUDF1[Geometry, Point](_.asInstanceOf[Point])
+  class ST_CastToPolygon extends NullableUDF1[Geometry, Polygon](_.asInstanceOf[Polygon])
+  class ST_CastToLineString extends NullableUDF1[Geometry, LineString](_.asInstanceOf[LineString])
+  class ST_CastToGeometry extends NullableUDF1[Geometry, Geometry](g => g)
+  class ST_ByteArray extends NullableUDF1[String, Array[Byte]](_.getBytes(StandardCharsets.UTF_8))
 
-  private[jts] def registerFunctions(sqlContext: SQLContext): Unit = {
-    // Register type casting functions
-    sqlContext.udf.register(castingNames(ST_CastToPoint), ST_CastToPoint)
-    sqlContext.udf.register(castingNames(ST_CastToPolygon), ST_CastToPolygon)
-    sqlContext.udf.register(castingNames(ST_CastToLineString), ST_CastToLineString)
-    sqlContext.udf.register(castingNames(ST_CastToGeometry), ST_CastToGeometry)
-    sqlContext.udf.register(castingNames(ST_ByteArray), ST_ByteArray)
-  }
+  val ST_CastToPoint = new ST_CastToPoint()
+  val ST_CastToPolygon = new ST_CastToPolygon()
+  val ST_CastToLineString = new ST_CastToLineString()
+  val ST_CastToGeometry = new ST_CastToGeometry()
+  val ST_ByteArray = new ST_ByteArray()
+
+  override def udfs: Seq[Registerable] =
+    Seq(
+      ST_CastToPoint,
+      ST_CastToPolygon,
+      ST_CastToLineString,
+      ST_CastToGeometry,
+      ST_ByteArray
+    )
 }
